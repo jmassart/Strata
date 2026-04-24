@@ -12,6 +12,7 @@ import Strata.DDM.Integration.Java.Gen
 import Strata.Languages.Core.Verifier
 import Strata.Languages.Core.SarifOutput
 import Strata.Languages.C_Simp.Verify
+import Strata.Languages.Coffee.Coffee
 import Strata.Languages.B3.Verifier.Program
 import Strata.Languages.Laurel.LaurelCompilationPipeline
 import Strata.Languages.Python.Python
@@ -253,8 +254,8 @@ def parseVerifyOptions (pflags : ParsedFlags)
     vcDirectory
   }
 
-/-- Read and parse a Strata program file, loading the Core, C_Simp, and B3CST
-    dialects. Returns the parsed program and the input context (for source
+/-- Read and parse a Strata program file, loading the Core, C_Simp, B3CST, and
+    Coffee dialects. Returns the parsed program and the input context (for source
     location resolution), or an array of error messages on failure. -/
 private def readStrataProgram (file : String)
     : IO (Except (Array Lean.Message) (Strata.Program × Lean.Parser.InputContext)) := do
@@ -264,6 +265,7 @@ private def readStrataProgram (file : String)
   let dctx := dctx.addDialect! Core
   let dctx := dctx.addDialect! C_Simp
   let dctx := dctx.addDialect! B3CST
+  let dctx := dctx.addDialect! Coffee
   let leanEnv ← Lean.mkEmptyEnvironment 0
   match Strata.Elab.elabProgram dctx leanEnv inputCtx with
   | .ok pgm => pure (.ok (pgm, inputCtx))
@@ -1215,6 +1217,8 @@ def verifyCommand : Command where
       let vcResults ← try
         if file.endsWith ".csimp.st" then
           C_Simp.verify pgm opts
+        else if file.endsWith ".coffee.st" then
+          Strata.Coffee.verify pgm opts
         else if file.endsWith ".b3.st" || file.endsWith ".b3cst.st" then
           let ast ← match B3.Verifier.programToB3AST pgm with
             | Except.error msg => throw (IO.userError s!"Failed to convert to B3 AST: {msg}")
