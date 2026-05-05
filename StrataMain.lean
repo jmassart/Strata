@@ -656,7 +656,15 @@ def pyAnalyzeLaurelCommand : Command where
     let coreProgram ←
       match coreProgramOption with
       | none =>
-        exitPyAnalyzeInternalError s!"Laurel to Core translation failed: {laurelTranslateErrors}"
+        let msg := s!"Laurel to Core translation failed: {laurelTranslateErrors}"
+        let hasStrataBug := laurelTranslateErrors.any
+          (fun d => d.type == DiagnosticType.StrataBug)
+        -- If any diagnostic is a StrataBug, treat the whole failure as internal
+        -- (a Strata bug takes priority over known limitations).
+        if hasStrataBug then
+          exitPyAnalyzeInternalError msg
+        else
+          exitPyAnalyzeKnownLimitation msg
       | some core => pure core
 
     if verbose then
