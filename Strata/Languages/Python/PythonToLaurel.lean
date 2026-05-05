@@ -1736,7 +1736,8 @@ partial def translateStmt (ctx : TranslationContext) (s : Python.stmt SourceRang
     let summary := match msg.val with
       | some (.Constant _ (.ConString _ str) _) => some str.val
       | _ => none
-    -- Check if condition contains a Hole - if so, hoist to variable
+    -- Hoist unmodelled conditions (e.g. isinstance(...)) into a fresh
+    -- bool-typed variable.
     let (condStmts, finalCondExpr, condCtx) :=
       match condExpr.val with
       | .Hole =>
@@ -1747,7 +1748,18 @@ partial def translateStmt (ctx : TranslationContext) (s : Python.stmt SourceRang
         ([varDecl], varRef, { ctx with variableTypes := ctx.variableTypes ++ [(freshVar, "bool")] })
       | _ => ([], condExpr, ctx)
 
-    let assertStmt := mkStmtExprMdWithLoc (StmtExpr.Assert { condition := Any_to_bool finalCondExpr, summary }) md
+    -- Skip Any_to_bool when the condition is already a bool-typed local;
+    -- wrapping it would produce ill-typed Any_to_bool(bool). See #1102.
+    let isBoolTypedVar : Bool :=
+      match finalCondExpr.val with
+      | .Var (.Local name) =>
+        match condCtx.variableTypes.find? (fun (n, _) => n == name) with
+        | some (_, ty) => ty == PyLauType.Bool
+        | none => false
+      | _ => false
+    let coercedCond :=
+      if isBoolTypedVar then finalCondExpr else Any_to_bool finalCondExpr
+    let assertStmt := mkStmtExprMdWithLoc (StmtExpr.Assert { condition := coercedCond, summary }) md
 
     -- Wrap in block if we hoisted condition
     let result := if condStmts.isEmpty then
