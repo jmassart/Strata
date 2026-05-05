@@ -657,14 +657,20 @@ def pyAnalyzeLaurelCommand : Command where
       match coreProgramOption with
       | none =>
         let msg := s!"Laurel to Core translation failed: {laurelTranslateErrors}"
-        let hasStrataBug := laurelTranslateErrors.any
-          (fun d => d.type == DiagnosticType.StrataBug)
-        -- If any diagnostic is a StrataBug, treat the whole failure as internal
-        -- (a Strata bug takes priority over known limitations).
-        if hasStrataBug then
+        -- Classify by worst-severity diagnostic: StrataBug (tool bug) outranks
+        -- UserError (user-actionable) outranks NotYetImplemented (wait-for-support).
+        -- An empty list or warnings-only failure with `coreProgramOption = none`
+        -- is itself a tool bug (translation should not silently fail).
+        if laurelTranslateErrors.isEmpty
+            ∨ laurelTranslateErrors.any (·.type == .StrataBug) then
           exitPyAnalyzeInternalError msg
-        else
+        else if laurelTranslateErrors.any (·.type == .UserError) then
+          exitPyAnalyzeUserError msg
+        else if laurelTranslateErrors.any (·.type == .NotYetImplemented) then
           exitPyAnalyzeKnownLimitation msg
+        else
+          -- Only warnings, but translation failed → unexpected.
+          exitPyAnalyzeInternalError msg
       | some core => pure core
 
     if verbose then
