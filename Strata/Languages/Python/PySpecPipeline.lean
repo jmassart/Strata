@@ -390,20 +390,34 @@ public def translateCombinedLaurel (combined : Laurel.Program)
   let (coreOption, errors, _, _) ← translateCombinedLaurelWithLowered combined (profile := profile)
   return (coreOption, errors)
 
-/-- Errors from the pyAnalyzeLaurel pipeline. -/
-public inductive PipelineError where
-  /-- The Python source contains invalid code (bad method name, wrong arguments, etc.). -/
-  | userCode (range : SourceRange := .none) (msg : String)
-  /-- The pipeline encountered a Python construct it intentionally does not yet support. -/
-  | knownLimitation (msg : String)
-  /-- An unexpected failure — likely a bug in the tool itself. -/
-  | internal (msg : String)
+/-- Errors from the pyAnalyzeLaurel pipeline: a batch of diagnostics.
 
-public instance : ToString PipelineError where
-  toString
-    | .userCode _ msg => s!"User code error: {msg}"
-    | .knownLimitation msg => s!"Known limitation: {msg}"
-    | .internal msg => msg
+Each entry carries a `DiagnosticType` (UserError, NotYetImplemented, StrataBug,
+or Warning) so the caller can classify the batch into a single exit category
+using `classifyDiagnostics`.  This type replaces the prior three-case
+`PipelineError` inductive; routing is now driven by `DiagnosticType` rather
+than by sum-type constructors, so the Python→Laurel and Laurel→Core pipeline
+stages share a single classifier. -/
+public abbrev PipelineError := List DiagnosticModel
+
+/-- Helper: create a user-code error diagnostic.
+
+The optional `filePath`/`range` populate the `FileRange` used by
+`classifyDiagnosticsAndExit` to format locations and by the
+`user_errors.txt` side effect to emit SMT `set-info` lines. -/
+public def mkUserCodeDiagnostic (filePath : String) (range : SourceRange) (msg : String)
+    : DiagnosticModel :=
+  { fileRange := { file := .file filePath, range := range }
+    message := msg
+    type := .UserError }
+
+/-- Helper: create a known-limitation diagnostic (intentionally unsupported). -/
+public def mkKnownLimitationDiagnostic (msg : String) : DiagnosticModel :=
+  { fileRange := FileRange.unknown, message := msg, type := .NotYetImplemented }
+
+/-- Helper: create an internal-error diagnostic (tool bug). -/
+public def mkInternalDiagnostic (msg : String) : DiagnosticModel :=
+  { fileRange := FileRange.unknown, message := msg, type := .StrataBug }
 
 /-- Run the pyAnalyzeLaurel pipeline: read a Python Ion program,
     resolve overloads from dispatch files, load PySpec declarations,
@@ -430,15 +444,16 @@ public def pythonAndSpecToLaurel
     (quiet : Bool := false)
     (warningSummaryFile : Option String := none)
     : EIO PipelineError Laurel.Program := do
+  let metadataPath := sourcePath.getD pythonIonPath
   let stmts ← profileStep profile "Read Python Ion" do
     match ← Python.readPythonStrata pythonIonPath |>.toBaseIO with
     | .ok r => pure r
-    | .error msg => throw (.internal msg)
+    | .error msg => throw [mkInternalDiagnostic msg]
 
   let result ← profileStep profile "Resolve and build Laurel prelude" do
     match ← resolveAndBuildLaurelPrelude dispatchModules pyspecModules stmts specDir (quiet := quiet) |>.toBaseIO with
     | .ok r => pure r
-    | .error msg => throw (.internal msg)
+    | .error msg => throw [mkInternalDiagnostic msg]
 
   -- Print and write PySpec warnings before later stages can fail
   let pyspecWarnings := result.pyspecWarnings
@@ -468,19 +483,19 @@ public def pythonAndSpecToLaurel
 
   let preludeInfo := buildPreludeInfo result
 
-  let metadataPath := sourcePath.getD pythonIonPath
   let (laurelProgram, _ctx) ← profileStep profile "Translate Python to Laurel" do
     match Python.pythonToLaurel preludeInfo stmts metadataPath result.overloads with
-    | .error (.userPythonError range msg) => throw (.userCode range msg)
+    | .error (.userPythonError range msg) =>
+        throw [mkUserCodeDiagnostic metadataPath range msg]
     | .error (.unsupportedConstruct msg ast) =>
-        throw (.knownLimitation s!"Unsupported construct: {msg}\nAST: {ast}")
-    | .error e => throw (.internal s!"Python to Laurel translation failed: {e}")
+        throw [mkKnownLimitationDiagnostic s!"Unsupported construct: {msg}\nAST: {ast}"]
+    | .error e => throw [mkInternalDiagnostic s!"Python to Laurel translation failed: {e}"]
     | .ok result => pure result
 
   let filteredPrelude ← profileStep profile "Filter prelude" do
     match Laurel.filterPrelude result.laurelProgram laurelProgram with
     | .ok prog => pure prog
-    | .error msg => throw (.internal msg)
+    | .error msg => throw [mkInternalDiagnostic msg]
 
   profileStep profile "Combine PySpec and user Laurel" do
     return combinePySpecLaurel filteredPrelude laurelProgram
