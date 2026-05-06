@@ -1737,28 +1737,24 @@ partial def translateStmt (ctx : TranslationContext) (s : Python.stmt SourceRang
       | some (.Constant _ (.ConString _ str) _) => some str.val
       | _ => none
     -- Hoist unmodelled conditions (e.g. isinstance(...)) into a fresh
-    -- bool-typed variable.
-    let (condStmts, finalCondExpr, condCtx) :=
+    -- bool-typed variable. The `alreadyBool` flag records, at the point of
+    -- construction, whether `finalCondExpr` is statically known to have type
+    -- bool -- avoiding a fragile round-trip through `variableTypes` later.
+    -- See #1102.
+    let (condStmts, finalCondExpr, condCtx, alreadyBool) :=
       match condExpr.val with
       | .Hole =>
         let freshVar := s!"assert_cond_{test.toAst.ann.start.byteIdx}"
         let varType := mkHighTypeMd .TBool
         let varDecl := mkVarDeclInit freshVar varType condExpr
         let varRef := mkStmtExprMd (StmtExpr.Var (.Local freshVar))
-        ([varDecl], varRef, { ctx with variableTypes := ctx.variableTypes ++ [(freshVar, "bool")] })
-      | _ => ([], condExpr, ctx)
+        ([varDecl], varRef, { ctx with variableTypes := ctx.variableTypes ++ [(freshVar, PyLauType.Bool)] }, true)
+      | _ => ([], condExpr, ctx, false)
 
     -- Skip Any_to_bool when the condition is already a bool-typed local;
     -- wrapping it would produce ill-typed Any_to_bool(bool). See #1102.
-    let isBoolTypedVar : Bool :=
-      match finalCondExpr.val with
-      | .Var (.Local name) =>
-        match condCtx.variableTypes.find? (fun (n, _) => n == name) with
-        | some (_, ty) => ty == PyLauType.Bool
-        | none => false
-      | _ => false
     let coercedCond :=
-      if isBoolTypedVar then finalCondExpr else Any_to_bool finalCondExpr
+      if alreadyBool then finalCondExpr else Any_to_bool finalCondExpr
     let assertStmt := mkStmtExprMdWithLoc (StmtExpr.Assert { condition := coercedCond, summary }) md
 
     -- Wrap in block if we hoisted condition
