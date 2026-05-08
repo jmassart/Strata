@@ -1,0 +1,106 @@
+{
+  "name": "Typestate",
+  "scopeName": "source.typestate-st",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#keyword-declaration" },
+    { "include": "#keyword-clause" },
+    { "include": "#keyword-quantifier" },
+    { "include": "#keyword-builtin" },
+    { "include": "#type" },
+    { "include": "#constant" },
+    { "include": "#operator" },
+    { "include": "#function-call" },
+    { "include": "#identifier" }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.typestate-st",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.typestate-st",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "string": {
+      "name": "string.quoted.double.typestate-st",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.typestate-st",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "number": {
+      "name": "constant.numeric.decimal.typestate-st",
+      "match": "\\b[0-9]+(\\.[0-9]+)?\\b"
+    },
+    "keyword-declaration": {
+      "name": "keyword.control.declaration.typestate-st",
+      "match": "\\b(program|service|resource|states|field|initial|api|invariants)\\b"
+    },
+    "keyword-clause": {
+      "name": "keyword.control.clause.typestate-st",
+      "match": "\\b(precondition|postcondition|before|after|transitions|invariant|always)\\b"
+    },
+    "keyword-quantifier": {
+      "name": "keyword.control.quantifier.typestate-st",
+      "match": "\\b(forall|exists|old)\\b"
+    },
+    "keyword-builtin": {
+      "name": "keyword.control.builtin.typestate-st",
+      "match": "\\b(dict_const)\\b"
+    },
+    "type": {
+      "name": "support.type.typestate-st",
+      "match": "\\b(int|bool|str|state|set|dict)\\b"
+    },
+    "constant": {
+      "name": "constant.language.typestate-st",
+      "match": "\\b(true|false)\\b"
+    },
+    "operator": {
+      "patterns": [
+        {
+          "name": "keyword.operator.assignment.typestate-st",
+          "match": ":="
+        },
+        {
+          "name": "keyword.operator.word.typestate-st",
+          "match": "\\b(and|or|not|implies|in|not\\s+in)\\b"
+        },
+        {
+          "name": "keyword.operator.comparison.typestate-st",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.typestate-st",
+          "match": "(\\+|-)"
+        },
+        {
+          "name": "keyword.operator.punctuation.typestate-st",
+          "match": "(::|:|;|,)"
+        }
+      ]
+    },
+    "function-call": {
+      "match": "\\b([A-Z][a-zA-Z0-9_]*)\\s*(?=\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.typestate-st" }
+      }
+    },
+    "identifier": {
+      "name": "variable.other.typestate-st",
+      "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+    }
+  }
+}

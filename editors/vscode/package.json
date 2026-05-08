@@ -2,8 +2,8 @@
   "name": "strata-st",
   "displayName": "Strata",
   "publisher": "strata-org",
-  "description": "Syntax highlighting for Strata dialect files",
-  "version": "0.1.0",
+  "description": "Syntax highlighting for Strata dialect files (.core.st, .typestate.st)",
+  "version": "0.2.0",
   "engines": {
     "vscode": "^1.60.0"
   },
@@ -15,6 +15,12 @@
         "aliases": ["Strata Core", "core-st"],
         "extensions": [".core.st"],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "typestate-st",
+        "aliases": ["Typestate", "typestate", "typestate-st"],
+        "extensions": [".typestate.st"],
+        "configuration": "./language-configuration-typestate.json"
       }
     ],
     "grammars": [
@@ -22,6 +28,11 @@
         "language": "core-st",
         "scopeName": "source.core-st",
         "path": "./syntaxes/core-st.tmLanguage.json"
+      },
+      {
+        "language": "typestate-st",
+        "scopeName": "source.typestate-st",
+        "path": "./syntaxes/typestate-st.tmLanguage.json"
       }
     ]
   }
