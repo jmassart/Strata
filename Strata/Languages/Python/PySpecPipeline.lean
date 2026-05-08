@@ -390,34 +390,16 @@ public def translateCombinedLaurel (combined : Laurel.Program)
   let (coreOption, errors, _, _) ← translateCombinedLaurelWithLowered combined (profile := profile)
   return (coreOption, errors)
 
-/-- Errors from the pyAnalyzeLaurel pipeline: a batch of diagnostics.
-
-Each entry carries a `DiagnosticType` (UserError, NotYetImplemented, StrataBug,
-or Warning) so the caller can classify the batch into a single exit category
-using `classifyDiagnostics`.  This type replaces the prior three-case
-`PipelineError` inductive; routing is now driven by `DiagnosticType` rather
-than by sum-type constructors, so the Python→Laurel and Laurel→Core pipeline
-stages share a single classifier. -/
+/-- A batch of diagnostics emitted by the pyAnalyzeLaurel pipeline. Routing
+to an exit category is driven by each entry's `DiagnosticType` via
+`classifyDiagnostics`. -/
 public abbrev PipelineError := List DiagnosticModel
 
-/-- Helper: create a user-code error diagnostic.
-
-The optional `filePath`/`range` populate the `FileRange` used by
-`classifyDiagnosticsAndExit` to format locations and by the
-`user_errors.txt` side effect to emit SMT `set-info` lines. -/
 public def mkUserCodeDiagnostic (filePath : String) (range : SourceRange) (msg : String)
     : DiagnosticModel :=
   { fileRange := { file := .file filePath, range := range }
     message := msg
     type := .UserError }
-
-/-- Helper: create a known-limitation diagnostic (intentionally unsupported). -/
-public def mkKnownLimitationDiagnostic (msg : String) : DiagnosticModel :=
-  { fileRange := FileRange.unknown, message := msg, type := .NotYetImplemented }
-
-/-- Helper: create an internal-error diagnostic (tool bug). -/
-public def mkInternalDiagnostic (msg : String) : DiagnosticModel :=
-  { fileRange := FileRange.unknown, message := msg, type := .StrataBug }
 
 /-- Run the pyAnalyzeLaurel pipeline: read a Python Ion program,
     resolve overloads from dispatch files, load PySpec declarations,
@@ -445,17 +427,18 @@ public def pythonAndSpecToLaurel
     (warningSummaryFile : Option String := none)
     : EIO PipelineError Laurel.Program := do
   let metadataPath := sourcePath.getD pythonIonPath
+  let internalErr (msg : String) : PipelineError :=
+    [DiagnosticModel.fromMessage msg (type := .StrataBug)]
   let stmts ← profileStep profile "Read Python Ion" do
     match ← Python.readPythonStrata pythonIonPath |>.toBaseIO with
     | .ok r => pure r
-    | .error msg => throw [mkInternalDiagnostic msg]
+    | .error msg => throw (internalErr msg)
 
   let result ← profileStep profile "Resolve and build Laurel prelude" do
     match ← resolveAndBuildLaurelPrelude dispatchModules pyspecModules stmts specDir (quiet := quiet) |>.toBaseIO with
     | .ok r => pure r
-    | .error msg => throw [mkInternalDiagnostic msg]
+    | .error msg => throw (internalErr msg)
 
-  -- Print and write PySpec warnings before later stages can fail
   let pyspecWarnings := result.pyspecWarnings
   if pyspecWarnings.size > 0 && !quiet then
     let _ ← IO.eprintln
@@ -488,14 +471,15 @@ public def pythonAndSpecToLaurel
     | .error (.userPythonError range msg) =>
         throw [mkUserCodeDiagnostic metadataPath range msg]
     | .error (.unsupportedConstruct msg ast) =>
-        throw [mkKnownLimitationDiagnostic s!"Unsupported construct: {msg}\nAST: {ast}"]
-    | .error e => throw [mkInternalDiagnostic s!"Python to Laurel translation failed: {e}"]
+        throw [DiagnosticModel.fromMessage s!"Unsupported construct: {msg}\nAST: {ast}"
+                 (type := .NotYetImplemented)]
+    | .error e => throw (internalErr s!"Python to Laurel translation failed: {e}")
     | .ok result => pure result
 
   let filteredPrelude ← profileStep profile "Filter prelude" do
     match Laurel.filterPrelude result.laurelProgram laurelProgram with
     | .ok prog => pure prog
-    | .error msg => throw [mkInternalDiagnostic msg]
+    | .error msg => throw (internalErr msg)
 
   profileStep profile "Combine PySpec and user Laurel" do
     return combinePySpecLaurel filteredPrelude laurelProgram

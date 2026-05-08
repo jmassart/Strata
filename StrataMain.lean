@@ -526,44 +526,36 @@ private def formatUserErrorMessage (d : DiagnosticModel) (fileMap : Option Lean.
     | none => ""
   s!"{d.message}{location}"
 
-/-- Classify diagnostics and exit with the matching `pyAnalyzeLaurel` category.
-    `prefixMsg` is prepended to internal-error and known-limitation details;
-    user-error details use the diagnostic's own message + line/column only. -/
+/-- Classify `diags` and exit with the matching `pyAnalyzeLaurel` category.
+    `prefixMsg` is prepended only to internal-error details. -/
 private def classifyDiagnosticsAndExit {α} (prefixMsg : String)
     (diags : List DiagnosticModel) (fileMap : Option Lean.FileMap) : IO α := do
+  let firstOf (t : DiagnosticType) (fmt : DiagnosticModel → String) : String :=
+    match (diags.filter (·.type == t)).head? with
+    | some d => fmt d
+    | none => formatDiagnostics diags fileMap
   match classifyDiagnostics diags with
   | .internalError   =>
     exitPyAnalyzeInternalError s!"{prefixMsg}: {formatDiagnostics diags fileMap}"
   | .userError       =>
-    let userDiags := diags.filter (·.type == DiagnosticType.UserError)
-    let msg := match userDiags.head? with
-      | some d => formatUserErrorMessage d fileMap
-      | none => formatDiagnostics diags fileMap
-    exitPyAnalyzeUserError msg
+    exitPyAnalyzeUserError (firstOf .UserError (formatUserErrorMessage · fileMap))
   | .knownLimitation =>
-    let nyiDiags := diags.filter (·.type == DiagnosticType.NotYetImplemented)
-    let msg := match nyiDiags.head? with
-      | some d => d.message
-      | none => formatDiagnostics diags fileMap
-    exitPyAnalyzeKnownLimitation msg
+    exitPyAnalyzeKnownLimitation (firstOf .NotYetImplemented (·.message))
 
 /-- Emit SMT `set-info` lines and write `user_errors.txt` for the first
     user-code diagnostic in the batch. -/
 private def emitUserErrorsFile (diags : List DiagnosticModel) : IO Unit := do
-  let userDiags := diags.filter (·.type == DiagnosticType.UserError)
-  match userDiags.head? with
-  | none => pure ()
-  | some d =>
-    let filePath := match d.fileRange.file with | .file p => p
-    let range := d.fileRange.range
-    let mut lines := #[s!"(set-info :file {Strata.escapeSMTStringLit filePath})"]
-    unless range.isNone do
-      lines := lines.push s!"(set-info :start {range.start})"
-      lines := lines.push s!"(set-info :stop {range.stop})"
-    lines := lines.push s!"(set-info :error-message {Strata.escapeSMTStringLit d.message})"
-    for line in lines do
-      IO.println line
-    IO.FS.writeFile "user_errors.txt" (String.intercalate "\n" lines.toList ++ "\n")
+  let some d := (diags.filter (·.type == DiagnosticType.UserError)).head? | pure ()
+  let .file filePath := d.fileRange.file
+  let range := d.fileRange.range
+  let mut lines := #[s!"(set-info :file {Strata.escapeSMTStringLit filePath})"]
+  unless range.isNone do
+    lines := lines.push s!"(set-info :start {range.start})"
+    lines := lines.push s!"(set-info :stop {range.stop})"
+  lines := lines.push s!"(set-info :error-message {Strata.escapeSMTStringLit d.message})"
+  for line in lines do
+    IO.println line
+  IO.FS.writeFile "user_errors.txt" (String.intercalate "\n" lines.toList ++ "\n")
 
 /-- Print the final RESULT/DETAIL lines based on solver outcomes.
     Always called on successful pipeline completion (as opposed to the
